@@ -10,12 +10,11 @@ from dotenv import load_dotenv
 if os.path.exists(".env"):
     load_dotenv()
 
-# Estados de la conversación
+# Estados
 PEDIR_MONTO, PEDIR_MESES = range(2)
 user_data_temp = {}
 
 def calcular_prestamo_texto(deuda: float, meses: int) -> str:
-    """Genera la tabla de amortización con ancho dinámico."""
     if deuda <= 1500:
         interes_anual, desgravamen = 30, 0.805
     elif deuda <= 3000:
@@ -41,7 +40,6 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
     sumatoria_intereses = 0
     filas = []
 
-    # Generar filas
     for i in range(1, meses + 1):
         interes = round(saldo_pendiente * tasa_mensual, 2)
         capital = round(cuota_mensual - interes, 2)
@@ -55,11 +53,9 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
             f"S/{saldo_pendiente:,.2f}"
         ])
 
-    # Calcular anchos dinámicos
     col_nombres = ["Mes", "Cuota", "Interés", "Capital", "Saldo"]
     anchos = [max(len(col), max(len(f[i]) for f in filas)) for i, col in enumerate(col_nombres)]
 
-    # Construir tabla
     tabla = " ".join(col.ljust(anchos[i]) for i, col in enumerate(col_nombres)) + "\n"
     for fila in filas:
         tabla += " ".join(valor.ljust(anchos[i]) for i, valor in enumerate(fila)) + "\n"
@@ -76,7 +72,6 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
 
     return f"📊 *Tabla de amortización:*\n```\n{tabla}\n```\n{resumen}"
 
-# --- Conversación ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hola 👋 Soy el simulador de préstamos.\n"
@@ -86,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def recibir_monto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        deuda = float(update.message.text.strip())
+        deuda = float(update.message.text)
         if deuda <= 0:
             raise ValueError
         user_data_temp[update.effective_user.id] = {"deuda": deuda}
@@ -98,15 +93,16 @@ async def recibir_monto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        meses = int(update.message.text.strip())
+        meses = int(update.message.text)
         if meses <= 0:
             raise ValueError
         deuda = user_data_temp[update.effective_user.id]["deuda"]
         resultado = calcular_prestamo_texto(deuda, meses)
         await update.message.reply_markdown(resultado)
-
-        # Flujo circular: volver a pedir monto
-        await update.message.reply_text("\n🔄 Vamos con otra simulación.\nIngresa el monto del préstamo:")
+        await update.message.reply_text(
+            "\n🔄 Ingresa el nuevo monto del préstamo:",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return PEDIR_MONTO
     except ValueError:
         await update.message.reply_text("❌ Ingresa un número válido de meses.")
@@ -114,12 +110,11 @@ async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "❌ Simulación cancelada. ¡Hasta pronto!",
+        "❌ Simulación cancelada.",
         reply_markup=ReplyKeyboardRemove()
     )
     return ConversationHandler.END
 
-# --- Main ---
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
     URL = os.getenv("RAILWAY_STATIC_URL")
