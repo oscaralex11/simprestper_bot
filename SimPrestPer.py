@@ -1,20 +1,21 @@
 import os
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ConversationHandler, ContextTypes
 )
 from dotenv import load_dotenv
 
-# Cargar variables de entorno desde .env si existe
+# Cargar variables de entorno en local
 if os.path.exists(".env"):
     load_dotenv()
 
-# Estados de la conversación
-PEDIR_MONTO, PEDIR_MESES = range(2)
+# Estados de conversación
+PEDIR_MONTO, PEDIR_MESES, PREGUNTAR_OTRO = range(3)
 user_data_temp = {}
 
 def calcular_prestamo_texto(deuda: float, meses: int) -> str:
+    """Genera la tabla de amortización con ancho dinámico."""
     if deuda <= 1500:
         interes_anual, desgravamen = 30, 0.805
     elif deuda <= 3000:
@@ -36,14 +37,29 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
 
     saldo_pendiente = deuda
     sumatoria_intereses = 0
-    tabla = "Mes\tCuota\t\tInterés\t\tCapital\t\tSaldo\n" + "-" * 60 + "\n"
+    filas = []
 
+    # Generar filas de la tabla
     for i in range(1, meses + 1):
         interes = round(saldo_pendiente * tasa_mensual, 2)
         capital = round(cuota_mensual - interes, 2)
         saldo_pendiente = round(saldo_pendiente - capital, 2)
         sumatoria_intereses += interes
-        tabla += f"{i}\tS/{cuota_mensual:,.2f}\tS/{interes:,.2f}\tS/{capital:,.2f}\tS/{saldo_pendiente:,.2f}\n"
+        filas.append([str(i), f"S/{cuota_mensual:,.2f}", f"S/{interes:,.2f}",
+                      f"S/{capital:,.2f}", f"S/{saldo_pendiente:,.2f}"])
+
+    # Calcular ancho de columnas dinámicamente
+    col_nombres = ["Mes", "Cuota", "Interés", "Capital", "Saldo"]
+    anchos = [len(col) for col in col_nombres]
+    for fila in filas:
+        for idx, valor in enumerate(fila):
+            if len(valor) > anchos[idx]:
+                anchos[idx] = len(valor)
+
+    # Construir tabla alineada
+    tabla = " ".join(col.ljust(anchos[i]) for i, col in enumerate(col_nombres)) + "\n"
+    for fila in filas:
+        tabla += " ".join(valor.ljust(anchos[i]) for i, valor in enumerate(fila)) + "\n"
 
     total_pagado = deuda + sumatoria_intereses
     resumen = (
@@ -54,8 +70,10 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
         f"💵 Total pagado: S/{total_pagado:,.2f}\n"
         f"📊 Total intereses: S/{sumatoria_intereses:,.2f}"
     )
+
     return f"📊 *Tabla de amortización:*\n```\n{tabla}\n```\n{resumen}"
 
+# --- Conversación ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hola 👋 Soy el simulador de préstamos.\n"
@@ -83,28 +101,47 @@ async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deuda = user_data_temp[update.effective_user.id]["deuda"]
         resultado = calcular_prestamo_texto(deuda, meses)
         await update.message.reply_markdown(resultado)
-        return ConversationHandler.END
+
+        # Mostrar botones
+        keyboard = [["Sí", "No"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        await update.message.reply_text("¿Quieres hacer otra simulación?", reply_markup=reply_markup)
+
+        return PREGUNTAR_OTRO
     except ValueError:
         await update.message.reply_text("❌ Ingresa un número válido de meses.")
         return PEDIR_MESES
 
+async def preguntar_otro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    respuesta = update.message.text.lower()
+    if respuesta in ["sí", "si"]:
+        await update.message.reply_text(
+            "Perfecto, ingresa el monto del préstamo:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return PEDIR_MONTO
+    else:
+        await update.message.reply_text(
+            "Gracias por usar el simulador. 👋",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
 async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Simulación cancelada.")
+    await update.message.reply_text(
+        "❌ Simulación cancelada.",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return ConversationHandler.END
 
+# --- Main ---
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
     URL = os.getenv("RAILWAY_STATIC_URL")
     PORT = int(os.getenv("PORT", 8080))
 
-    print("=== VARIABLES DE ENTORNO ===")
-    print(f"BOT_TOKEN: {'OK' if TOKEN else 'NO ENCONTRADO'}")
-    print(f"RAILWAY_STATIC_URL: {URL if URL else 'VACÍO'}")
-    print(f"PORT: {PORT}")
-    print("============================")
-
     if not TOKEN:
-        raise RuntimeError("❌ Error: Falta BOT_TOKEN en las variables de entorno.")
+        raise RuntimeError("❌ Falta BOT_TOKEN en las variables de entorno.")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -113,26 +150,20 @@ def main():
         states={
             PEDIR_MONTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto)],
             PEDIR_MESES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_meses)],
+            PREGUNTAR_OTRO: [MessageHandler(filters.TEXT & ~filters.COMMAND, preguntar_otro)],
         },
         fallbacks=[CommandHandler("cancel", cancelar)],
     )
     app.add_handler(conv_handler)
 
     if URL:
-        print("🚀 Iniciando en modo Webhook...")
-        try:
-            app.run_webhook(
-                listen="0.0.0.0",
-                port=PORT,
-                url_path=TOKEN,
-                webhook_url=f"https://{URL}/{TOKEN}"
-            )
-        except Exception as e:
-            print(f"⚠ Error al iniciar webhook: {e}")
-            print("🔄 Cambiando a modo Polling...")
-            app.run_polling()
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=f"https://{URL}/{TOKEN}"
+        )
     else:
-        print("⚠ No se detectó URL, usando modo Polling...")
         app.run_polling()
 
 if __name__ == "__main__":
