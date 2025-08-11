@@ -41,7 +41,7 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
     sumatoria_intereses = 0
     filas = []
 
-    # Generar filas de la tabla
+    # Generar filas
     for i in range(1, meses + 1):
         interes = round(saldo_pendiente * tasa_mensual, 2)
         capital = round(cuota_mensual - interes, 2)
@@ -55,11 +55,11 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
             f"S/{saldo_pendiente:,.2f}"
         ])
 
-    # Calcular ancho de columnas dinámicamente
+    # Calcular anchos dinámicos
     col_nombres = ["Mes", "Cuota", "Interés", "Capital", "Saldo"]
     anchos = [max(len(col), max(len(f[i]) for f in filas)) for i, col in enumerate(col_nombres)]
 
-    # Construir tabla alineada
+    # Construir tabla
     tabla = " ".join(col.ljust(anchos[i]) for i, col in enumerate(col_nombres)) + "\n"
     for fila in filas:
         tabla += " ".join(valor.ljust(anchos[i]) for i, valor in enumerate(fila)) + "\n"
@@ -86,11 +86,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def recibir_monto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        deuda = float(update.message.text)
+        deuda = float(update.message.text.strip())
         if deuda <= 0:
             raise ValueError
         user_data_temp[update.effective_user.id] = {"deuda": deuda}
-        await update.message.reply_text("Perfecto ✅\nAhora ingresa el tiempo en meses:")
+        await update.message.reply_text("Ahora ingresa el tiempo en meses:")
         return PEDIR_MESES
     except ValueError:
         await update.message.reply_text("❌ Ingresa un número válido para el monto.")
@@ -98,18 +98,15 @@ async def recibir_monto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        meses = int(update.message.text)
+        meses = int(update.message.text.strip())
         if meses <= 0:
             raise ValueError
         deuda = user_data_temp[update.effective_user.id]["deuda"]
         resultado = calcular_prestamo_texto(deuda, meses)
         await update.message.reply_markdown(resultado)
 
-        # En lugar de preguntar si desea otra, volver a pedir monto automáticamente
-        await update.message.reply_text(
-            "\n🔄 Vamos a hacer otra simulación.\nIngresa el monto del préstamo:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        # Flujo circular: volver a pedir monto
+        await update.message.reply_text("\n🔄 Vamos con otra simulación.\nIngresa el monto del préstamo:")
         return PEDIR_MONTO
     except ValueError:
         await update.message.reply_text("❌ Ingresa un número válido de meses.")
@@ -117,7 +114,7 @@ async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "❌ Simulación cancelada.",
+        "❌ Simulación cancelada. ¡Hasta pronto!",
         reply_markup=ReplyKeyboardRemove()
     )
     return ConversationHandler.END
