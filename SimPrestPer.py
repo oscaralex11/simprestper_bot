@@ -89,14 +89,14 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def main():
-    TOKEN = os.getenv("TOKEN")
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
     URL = os.getenv("RAILWAY_STATIC_URL")
     PORT = int(os.getenv("PORT", 8080))
 
-    if not TOKEN or not URL:
+    if not BOT_TOKEN or not URL:
         raise RuntimeError("Faltan variables de entorno BOT_TOKEN o RAILWAY_STATIC_URL.")
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -111,8 +111,8 @@ def main():
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=TOKEN,
-        webhook_url=f"https://{URL}/{TOKEN}"
+        url_path=BOT_TOKEN,
+        webhook_url=f"https://{URL}/{BOT_TOKEN}"
     )
 
 if __name__ == "__main__":
