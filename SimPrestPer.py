@@ -1,17 +1,17 @@
 import os
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ConversationHandler, ContextTypes
 )
 from dotenv import load_dotenv
 
-# Cargar variables de entorno en local
+# Cargar variables de entorno
 if os.path.exists(".env"):
     load_dotenv()
 
-# Estados de conversación
-PEDIR_MONTO, PEDIR_MESES, PREGUNTAR_OTRO = range(3)
+# Estados de la conversación
+PEDIR_MONTO, PEDIR_MESES = range(2)
 user_data_temp = {}
 
 def calcular_prestamo_texto(deuda: float, meses: int) -> str:
@@ -32,8 +32,10 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
         interes_anual, desgravamen = 15, 0.205
 
     tasa_mensual = interes_anual / 100 / 12
-    cuota_mensual = round((deuda * tasa_mensual * (1 + tasa_mensual) ** meses) /
-                          ((1 + tasa_mensual) ** meses - 1), 2)
+    cuota_mensual = round(
+        (deuda * tasa_mensual * (1 + tasa_mensual) ** meses) /
+        ((1 + tasa_mensual) ** meses - 1), 2
+    )
 
     saldo_pendiente = deuda
     sumatoria_intereses = 0
@@ -45,16 +47,17 @@ def calcular_prestamo_texto(deuda: float, meses: int) -> str:
         capital = round(cuota_mensual - interes, 2)
         saldo_pendiente = round(saldo_pendiente - capital, 2)
         sumatoria_intereses += interes
-        filas.append([str(i), f"S/{cuota_mensual:,.2f}", f"S/{interes:,.2f}",
-                      f"S/{capital:,.2f}", f"S/{saldo_pendiente:,.2f}"])
+        filas.append([
+            str(i),
+            f"S/{cuota_mensual:,.2f}",
+            f"S/{interes:,.2f}",
+            f"S/{capital:,.2f}",
+            f"S/{saldo_pendiente:,.2f}"
+        ])
 
     # Calcular ancho de columnas dinámicamente
     col_nombres = ["Mes", "Cuota", "Interés", "Capital", "Saldo"]
-    anchos = [len(col) for col in col_nombres]
-    for fila in filas:
-        for idx, valor in enumerate(fila):
-            if len(valor) > anchos[idx]:
-                anchos[idx] = len(valor)
+    anchos = [max(len(col), max(len(f[i]) for f in filas)) for i, col in enumerate(col_nombres)]
 
     # Construir tabla alineada
     tabla = " ".join(col.ljust(anchos[i]) for i, col in enumerate(col_nombres)) + "\n"
@@ -102,30 +105,15 @@ async def recibir_meses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resultado = calcular_prestamo_texto(deuda, meses)
         await update.message.reply_markdown(resultado)
 
-        # Mostrar botones
-        keyboard = [["Sí", "No"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text("¿Quieres hacer otra simulación?", reply_markup=reply_markup)
-
-        return PREGUNTAR_OTRO
-    except ValueError:
-        await update.message.reply_text("❌ Ingresa un número válido de meses.")
-        return PEDIR_MESES
-
-async def preguntar_otro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    respuesta = update.message.text.lower()
-    if respuesta in ["sí", "si"]:
+        # En lugar de preguntar si desea otra, volver a pedir monto automáticamente
         await update.message.reply_text(
-            "Perfecto, ingresa el monto del préstamo:",
+            "\n🔄 Vamos a hacer otra simulación.\nIngresa el monto del préstamo:",
             reply_markup=ReplyKeyboardRemove()
         )
         return PEDIR_MONTO
-    else:
-        await update.message.reply_text(
-            "Gracias por usar el simulador. 👋",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("❌ Ingresa un número válido de meses.")
+        return PEDIR_MESES
 
 async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -150,7 +138,6 @@ def main():
         states={
             PEDIR_MONTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto)],
             PEDIR_MESES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_meses)],
-            PREGUNTAR_OTRO: [MessageHandler(filters.TEXT & ~filters.COMMAND, preguntar_otro)],
         },
         fallbacks=[CommandHandler("cancel", cancelar)],
     )
