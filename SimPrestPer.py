@@ -4,13 +4,17 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ConversationHandler, ContextTypes
 )
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde .env si existe
+if os.path.exists(".env"):
+    load_dotenv()
 
 # Estados de la conversación
 PEDIR_MONTO, PEDIR_MESES = range(2)
 user_data_temp = {}
 
 def calcular_prestamo_texto(deuda: float, meses: int) -> str:
-    """Genera tabla de amortización en texto plano."""
     if deuda <= 1500:
         interes_anual, desgravamen = 30, 0.805
     elif deuda <= 3000:
@@ -89,14 +93,20 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def main():
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    TOKEN = os.getenv("BOT_TOKEN")
     URL = os.getenv("RAILWAY_STATIC_URL")
     PORT = int(os.getenv("PORT", 8080))
 
-    if not BOT_TOKEN or not URL:
-        raise RuntimeError("Faltan variables de entorno BOT_TOKEN o RAILWAY_STATIC_URL.")
+    print("=== VARIABLES DE ENTORNO ===")
+    print(f"BOT_TOKEN: {'OK' if TOKEN else 'NO ENCONTRADO'}")
+    print(f"RAILWAY_STATIC_URL: {URL if URL else 'VACÍO'}")
+    print(f"PORT: {PORT}")
+    print("============================")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    if not TOKEN:
+        raise RuntimeError("❌ Error: Falta BOT_TOKEN en las variables de entorno.")
+
+    app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -108,12 +118,22 @@ def main():
     )
     app.add_handler(conv_handler)
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=f"https://{URL}/{BOT_TOKEN}"
-    )
+    if URL:
+        print("🚀 Iniciando en modo Webhook...")
+        try:
+            app.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                url_path=TOKEN,
+                webhook_url=f"https://{URL}/{TOKEN}"
+            )
+        except Exception as e:
+            print(f"⚠ Error al iniciar webhook: {e}")
+            print("🔄 Cambiando a modo Polling...")
+            app.run_polling()
+    else:
+        print("⚠ No se detectó URL, usando modo Polling...")
+        app.run_polling()
 
 if __name__ == "__main__":
     main()
